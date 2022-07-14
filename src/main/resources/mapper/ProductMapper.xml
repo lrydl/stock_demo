@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.smallrig.mall.template.mapper.ProductMapper">
+
+
+    <update id="decrStockBatch" parameterType="com.smallrig.mall.template.entity.dto.DecrStock">
+        <foreach collection="list" item="sku" index="index" open="" close="" separator=";">
+            update t_product
+            <set>
+                stock = stock-#{sku.buyNum},
+            </set>
+            where id = #{sku.productId} and stock  >= #{sku.buyNum}
+        </foreach>
+    </update>
+
+    <update id="decrStock">
+        update  t_product set stock = stock-#{buyNum} where stock  >= #{buyNum} and id=#{productId}
+    </update>
+
+
+</mapper>
