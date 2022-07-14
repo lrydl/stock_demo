@@ -8,6 +8,7 @@ import com.smallrig.mall.template.service.OrderService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.web.bind.annotation.*;
 
+import javax.annotation.PostConstruct;
 import javax.annotation.Resource;
 import java.util.Arrays;
 import java.util.Random;
@@ -28,11 +29,25 @@ public class UserController{
     @Resource
     private OrderService orderServiceImpl;
 
+    volatile int maxProductId = 5;
+    @PostConstruct
+    public void init(){
+        new Thread(()->{
+            try {
+                Thread.sleep(20000);
+            } catch (InterruptedException e) {
+                e.printStackTrace();
+            }
+            //模拟20s后让4，5不再过来了，测试撤销线程
+            maxProductId = 3;
+        }).start();
+    }
+
     @GetMapping("/submitOrder")
     public void submitOrder() throws InterruptedException {
         Order order = new Order();
         int userId = random.nextInt(4)+1;//1-4
-        int productId= random.nextInt(1)+1;//1-2
+        int productId= random.nextInt(maxProductId)+1;//1-2
         int buyNum = random.nextInt(5)+1;//1-5
         order.setUserId(userId);
         order.setProductId(productId);

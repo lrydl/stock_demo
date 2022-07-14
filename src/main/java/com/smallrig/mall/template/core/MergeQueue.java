@@ -24,6 +24,7 @@ public class MergeQueue {
    @Resource
    private OrderService orderServiceImpl;
 
+   private int threshold = 3;//空轮询若干次撤销异步线程，当tps下降如何处理？ 当tps下降时，在controller层走的是单个扣减逻辑，所以检测只需要空轮询即可
 
     //Q1:上游业务方等待超时,返回给用户秒杀失败, 下游可能是处于阻塞态, 之后可能扣减库存成功了, 那这里上游就需要做下补偿,把库存加回来 todo
 
@@ -37,16 +38,18 @@ public class MergeQueue {
     //Q5:一个订单多个sku如何处理 todo
     //Q6:某个时刻宕机, 队列还没消费完如何处理?
 
-    private BlockingQueue<RequestPromise> queue = new LinkedBlockingQueue<>();
+    private Map<Integer,AsyncThread> threadMap = new ConcurrentHashMap<>();
 
 
     public Result offer(Order request) throws InterruptedException {
 
-        //为每个skuId维护一个阻塞队列,为每个队列分配一个异步线程执行合并请求操作 todo
+        AsyncThread asyncThread = threadMap.computeIfAbsent(request.getProductId(),
+                (k)->new AsyncThread(request.getProductId()));
 
         RequestPromise requestPromise = new RequestPromise(request,Thread.currentThread());
 
-        boolean enqueueSuccess = queue.offer(requestPromise, 100, TimeUnit.MILLISECONDS);
+        boolean enqueueSuccess = asyncThread.offer(requestPromise, 100, TimeUnit.MILLISECONDS);
+        //这里可能会出现一种情况：当出现三次空轮训后，撤销线程，突然来了一波高峰，可能会直接返回false，不知道可不可行，这种处理方式？ todo
         if (!enqueueSuccess) {
             return new Result(false, "系统繁忙");
         }
@@ -59,11 +62,42 @@ public class MergeQueue {
         return requestPromise.getResult();
     }
 
-    @PostConstruct
-    public void mergeJob() {
-        new Thread(() -> {
-            while (true) {
+
+    @Slf4j
+    public class AsyncThread extends Thread{
+        private int skuId;
+        private BlockingQueue<MergeQueue.RequestPromise> queue;
+        private int emptyCounter = 0;
+        private boolean running = true;
+        public AsyncThread(int skuId) {
+            super("mergeThread,skuId="+skuId);
+            this.skuId = skuId;
+            this.queue = new LinkedBlockingQueue<>(10000);
+            start();
+        }
+
+
+        public boolean isRunning() {
+            return running;
+        }
+
+        public boolean offer(MergeQueue.RequestPromise requestPromise, long time, TimeUnit unit) throws InterruptedException {
+            if(!isRunning()){
+                return false;
+            }
+            return queue.offer(requestPromise,time,unit);
+        }
+
+        @Override
+        public void run() {
+            while (running) {
                 if (queue.isEmpty()) {
+                    emptyCounter++;
+                    if(emptyCounter>threshold){
+                        threadMap.remove(skuId);
+                        running = false;
+                        log.info("stop thread,threadName="+getName());
+                    }
                     try {
                         Thread.sleep(100);
                         continue;
@@ -75,7 +109,7 @@ public class MergeQueue {
 
                 long start = System.currentTimeMillis();
 
-                List<RequestPromise> list = new ArrayList<>();
+                List<MergeQueue.RequestPromise> list = new ArrayList<>();
                 int batchSize = queue.size();
                 for (int i = 0; i < batchSize; i++) {
                     list.add(queue.poll());
@@ -89,7 +123,7 @@ public class MergeQueue {
 
                 // notify user
                 list.forEach(requestPromise -> {
-                    requestPromise.setResult(new Result(true, "ok"));
+                    requestPromise.setResult(new MergeQueue.Result(true, "ok"));
                     requestPromise.signal();
                 });
                 list.clear();
@@ -99,11 +133,11 @@ public class MergeQueue {
                     log.info("扣减库存花费时间="+costTime);
                 }
             }
-        }, "mergeThread").start();
+        }
     }
 
 
-    class RequestPromise {
+    public static class RequestPromise {
         private Order request;
         private Result result;
         private Thread thread;
