@@ -24,7 +24,6 @@ public class MergeQueue {
    @Resource
    private OrderService orderServiceImpl;
 
-    private Counter slideWindow = new SlideWindow(10,1000);
 
     //Q1:上游业务方等待超时,返回给用户秒杀失败, 下游可能是处于阻塞态, 之后可能扣减库存成功了, 那这里上游就需要做下补偿,把库存加回来 todo
 
@@ -43,7 +42,7 @@ public class MergeQueue {
 
     public Result offer(Order request) throws InterruptedException {
 
-        boolean generateQueue = slideWindow.addCounter(request.getProductId(), request.getBuyNum());
+        //为每个skuId维护一个阻塞队列,为每个队列分配一个异步线程执行合并请求操作 todo
 
         RequestPromise requestPromise = new RequestPromise(request,Thread.currentThread());
 
