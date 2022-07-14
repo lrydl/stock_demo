@@ -19,6 +19,8 @@ public class UserController{
     @Resource
     private MergeQueue mergeQueue;
 
+
+
     @GetMapping("/submitOrder")
     public void submitOrder() throws InterruptedException {
         Order order = new Order();

@@ -3,6 +3,7 @@ package com.smallrig.mall.template.core;
 import com.smallrig.mall.template.entity.Order;
 import com.smallrig.mall.template.mapper.OrderMapper;
 import com.smallrig.mall.template.mapper.ProductMapper;
+import com.smallrig.mall.template.service.OrderService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
@@ -20,11 +21,10 @@ import java.util.stream.Collectors;
 @Slf4j
 public class MergeQueue {
 
-    @Resource
-    private OrderMapper orderMapper;
+   @Resource
+   private OrderService orderServiceImpl;
 
-    @Resource
-    private ProductMapper productMapper;
+    private Counter slideWindow = new SlideWindow(10,1000);
 
     //Q1:上游业务方等待超时,返回给用户秒杀失败, 下游可能是处于阻塞态, 之后可能扣减库存成功了, 那这里上游就需要做下补偿,把库存加回来 todo
 
@@ -32,16 +32,19 @@ public class MergeQueue {
     //A2: 对每一个sku分配一个队列,为每个队列开异步线程, 只能针对爆品,顶多十来个
 
     //Q3: 队列的创建(达到设定的并发阈值)与销毁(达到设定的空轮询阈值) todo
-    //A3: 设计简单的计数器即可, 空轮询若干次后移除掉队列
+    //A3: 设计简单的计数器即可?(滑动窗口更好), 空轮询若干次后移除掉队列
 
     //Q4:订单是如何生成的,生成时机 ?
     //Q5:一个订单多个sku如何处理 todo
     //Q6:某个时刻宕机, 队列还没消费完如何处理?
-    //Q7:滑动窗口?
+
     private BlockingQueue<RequestPromise> queue = new LinkedBlockingQueue<>();
 
 
     public Result offer(Order request) throws InterruptedException {
+
+        boolean generateQueue = slideWindow.addCounter(request.getProductId(), request.getBuyNum());
+
         RequestPromise requestPromise = new RequestPromise(request,Thread.currentThread());
 
         boolean enqueueSuccess = queue.offer(requestPromise, 100, TimeUnit.MILLISECONDS);
@@ -80,21 +83,8 @@ public class MergeQueue {
                 }
 
                 log.info(Thread.currentThread().getName() + ":合并扣减库存:" + list);
-
-                int sum = list.stream().mapToInt(e -> e.getRequest().getBuyNum()).sum();
-
-                //扣减库存，生成订单 ,事务处理 todo
-                int aff = productMapper.decrStock(list.get(0).getRequest().getProductId(), sum);
                 List<Order> orders = list.stream().map(v -> v.getRequest()).collect(Collectors.toList());
-                int affect = orderMapper.saveBatch(orders);
-
-                //失败处理 todo
-                if(aff<=0){
-                    log.error("扣减库存失败");
-                }
-                if(affect!=orders.size()){
-                    log.error("保存订单失败");
-                }
+                orderServiceImpl.saveOrder(orders);
 
                 //库存不足退化成循环 todo
 
