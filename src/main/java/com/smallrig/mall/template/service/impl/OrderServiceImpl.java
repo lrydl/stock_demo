@@ -23,9 +23,11 @@ public class OrderServiceImpl  extends ServiceImpl<OrderMapper, Order> implement
     @Resource
     private ProductMapper productMapper;
 
+
+
     @Override
     @Transactional
-    public void saveOrder(List<Order> orders){
+    public boolean saveOrder(List<Order> orders){
         int sum = orders.stream().mapToInt(e -> e.getBuyNum()).sum();
         //扣减库存，生成订单
         int affect = orderMapper.saveBatch(orders);
@@ -38,6 +40,7 @@ public class OrderServiceImpl  extends ServiceImpl<OrderMapper, Order> implement
         if(affect!=orders.size()){
             log.error("保存订单失败");
         }
+        return aff>0;
     }
 
 }

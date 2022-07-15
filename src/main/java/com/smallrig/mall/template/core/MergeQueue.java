@@ -5,6 +5,7 @@ import com.smallrig.mall.template.mapper.OrderMapper;
 import com.smallrig.mall.template.mapper.ProductMapper;
 import com.smallrig.mall.template.request.OrderReq;
 import com.smallrig.mall.template.service.OrderService;
+import com.smallrig.mall.template.service.ProductService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
@@ -21,6 +22,9 @@ public class MergeQueue {
 
    @Resource
    private OrderService orderServiceImpl;
+
+   @Resource
+   private ProductService productServiceImpl;
 
    private static int threshold = 3;//空轮询若干次撤销异步线程，当tps下降如何处理？ 当tps下降时，在controller层走的是单个扣减逻辑，即请求不会打到MergeQueue,所以只需要检测空轮询即可
 
@@ -50,12 +54,12 @@ public class MergeQueue {
         for (OrderReq.SkuReq skuReq : request.getSkuReqs()) {
 
             AsyncThread asyncThread = threadMap.computeIfAbsent(skuReq.getSkuId(),
-                    (k)->new AsyncThread(skuReq.getSkuId(),orderServiceImpl));
+                    (k)->new AsyncThread(skuReq.getSkuId(),orderServiceImpl,productServiceImpl));
 
             //根据sku拆单
             Order order = Order.builder().buyNum(skuReq.getBuyNum()).userId(request.getUserId()).productId(skuReq.getSkuId()).orderSn(request.getOrderSn()).build();
             RequestPromise requestPromise = new RequestPromise(order,cdl);
-
+            requestPromises.add(requestPromise);
             boolean enqueueSuccess = asyncThread.offer(requestPromise, 100, TimeUnit.MILLISECONDS);
             //这里可能会出现一种情况：当出现三次空轮训后，撤销线程，突然来了一波高峰，可能会直接返回false，不知道可不可行，这种处理方式？ todo
             if (!enqueueSuccess) {
@@ -88,10 +92,12 @@ public class MergeQueue {
         private int emptyCounter = 0;
         private boolean running = true;
         private OrderService orderServiceImpl;
+        private ProductService productServiceImpl;
 
-        public AsyncThread(int skuId, OrderService orderServiceImpl) {
+        public AsyncThread(int skuId, OrderService orderServiceImpl,ProductService productServiceImpl) {
             super("mergeThread,skuId="+skuId);
             this.orderServiceImpl = orderServiceImpl;
+            this.productServiceImpl = productServiceImpl;
             this.skuId = skuId;
             this.queue = new LinkedBlockingQueue<>(10000);
             start();
@@ -134,26 +140,73 @@ public class MergeQueue {
 
                 List<MergeQueue.RequestPromise> list = new ArrayList<>();
                 int batchSize = queue.size();
+                int buySum = 0;
                 for (int i = 0; i < batchSize; i++) {
-                    list.add(queue.poll());
+                    MergeQueue.RequestPromise requestPromise = queue.poll();
+                    buySum += requestPromise.getRequest().getBuyNum();
+                    list.add(requestPromise);
                 }
 
                 log.info(Thread.currentThread().getName() + ":合并扣减库存:" + list);
+
                 List<Order> orders = list.stream().map(v -> v.getRequest()).collect(Collectors.toList());
-                orderServiceImpl.saveOrder(orders);
+                boolean decrStockOk = orderServiceImpl.saveOrder(orders);
 
-                //库存不足退化成循环 todo
+                //批量扣减成功了,直接批量返回
+                if(decrStockOk){
+                    // notify user
+                    list.forEach(requestPromise -> {
+                        requestPromise.setResult(new MergeQueue.Result(true, "ok"));
+                        requestPromise.signal();
+                    });
+                }else{
+                    //退化成循环扣减
+                    degrade(list);
+                }
 
-                // notify user
-                list.forEach(requestPromise -> {
-                    requestPromise.setResult(new MergeQueue.Result(true, "ok"));
-                    requestPromise.signal();
-                });
                 list.clear();
 
                 long costTime = System.currentTimeMillis()-start;
                 if(costTime>5){
                     log.info("扣减库存花费时间="+costTime);
+                }
+            }
+        }
+
+
+        //走到降级tps下降的会比较狠,因为多了一个查库存, 扣减库存也变成单批扣减了
+        private void degrade(List<MergeQueue.RequestPromise> list){
+            int skuId = list.get(0).getRequest().getProductId();
+            int stock = productServiceImpl.queryStock(skuId);
+            //查询库存数量
+            if(stock<=0){
+                // notify user
+                list.forEach(requestPromise -> {
+                    requestPromise.setResult(new MergeQueue.Result(false, "库存不足"));
+                    requestPromise.signal();
+                });
+            }else{
+                //根据购买数量倒序排序,尽量让买的多的客户买到
+                list.sort((o1,o2)->o2.getRequest().getBuyNum()-o1.getRequest().getBuyNum());
+                //库存不足退化成循环
+                for (MergeQueue.RequestPromise requestPromise : list) {
+                    if(stock>=requestPromise.getRequest().getBuyNum()){
+                        boolean f = orderServiceImpl.saveOrder(Arrays.asList(requestPromise.getRequest()));
+                        if(f){
+                            //通知用户成功
+                            requestPromise.setResult(new MergeQueue.Result(true, "ok"));
+                            requestPromise.signal();
+                            stock -= requestPromise.getRequest().getBuyNum();
+                        }else{
+                            //通知用户失败
+                            requestPromise.setResult(new MergeQueue.Result(false, "库存不足"));
+                            requestPromise.signal();
+                        }
+                    }else{
+                        //通知用户失败
+                        requestPromise.setResult(new MergeQueue.Result(false, "库存不足"));
+                        requestPromise.signal();
+                    }
                 }
             }
         }

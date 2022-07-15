@@ -9,6 +9,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.util.List;
 
 public interface OrderService extends IService<Order> {
+
     @Transactional
-    void saveOrder(List<Order> orders);
+    boolean saveOrder(List<Order> orders);
 }

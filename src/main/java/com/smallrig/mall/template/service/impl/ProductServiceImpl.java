@@ -14,4 +14,12 @@ import org.springframework.stereotype.Service;
 @Slf4j
 public class ProductServiceImpl extends ServiceImpl<ProductMapper, Product> implements ProductService {
 
+    @Override
+    public int queryStock(int skuId){
+        Product product = lambdaQuery().eq(Product::getId,skuId).select(Product::getStock).one();
+        if(null==product){
+            return 0;
+        }
+        return product.getStock();
+    }
 }

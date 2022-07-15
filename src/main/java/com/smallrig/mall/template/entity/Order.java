@@ -1,5 +1,6 @@
 package com.smallrig.mall.template.entity;
 
+import com.baomidou.mybatisplus.annotation.TableName;
 import com.baomidou.mybatisplus.extension.activerecord.Model;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -18,6 +19,7 @@ import java.io.Serializable;
 @AllArgsConstructor
 @NoArgsConstructor
 @Builder
+@TableName("sorder")
 public class Order extends Model implements Serializable  {
     private int id;
     private long orderSn;//如果两条记录的orderSn一样,说明是属于一个订单的

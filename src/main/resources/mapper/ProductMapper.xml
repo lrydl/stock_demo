@@ -20,5 +20,4 @@
         update  t_product set stock = stock-#{buyNum} where stock  >= #{buyNum} and id=#{productId}
     </update>
 
-
 </mapper>

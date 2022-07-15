@@ -7,4 +7,5 @@ import com.smallrig.mall.template.entity.Product;
 import com.smallrig.mall.template.mapper.OrderMapper;
 
 public interface ProductService  extends IService<Product> {
+    int queryStock(int skuId);
 }
