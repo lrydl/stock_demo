@@ -39,7 +39,8 @@ public class SlideWindow implements Counter{
     public boolean addCounter(int skuId, int count) {
         Bucket bucket = getBucket();
         bucket.addCount(skuId,count);
-        return count(skuId)>=threshold;
+        long reqNum = count(skuId);
+        return reqNum>=threshold;
     }
 
     public Bucket getBucket(){

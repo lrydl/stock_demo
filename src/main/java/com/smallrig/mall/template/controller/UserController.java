@@ -29,7 +29,8 @@ public class UserController{
     @Resource
     private OrderService orderServiceImpl;
 
-    volatile int maxProductId = 5;
+    volatile int maxProductId = 10; //爆品sku只能几个,3-5个的时候tps能到4000多,10个只能到2000,cpu都吃完了
+
     @PostConstruct
     public void init(){
         new Thread(()->{
@@ -38,8 +39,8 @@ public class UserController{
             } catch (InterruptedException e) {
                 e.printStackTrace();
             }
-            //模拟20s后让4，5不再过来了，测试撤销线程
-            maxProductId = 3;
+            //模拟20s后让9，10不再过来了，测试撤销线程
+            maxProductId = 8;
         }).start();
     }
 

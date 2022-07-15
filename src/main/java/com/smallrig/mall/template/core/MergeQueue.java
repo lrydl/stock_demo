@@ -24,27 +24,26 @@ public class MergeQueue {
    @Resource
    private OrderService orderServiceImpl;
 
-   private int threshold = 3;//空轮询若干次撤销异步线程，当tps下降如何处理？ 当tps下降时，在controller层走的是单个扣减逻辑，所以检测只需要空轮询即可
+   private static int threshold = 3;//空轮询若干次撤销异步线程，当tps下降如何处理？ 当tps下降时，在controller层走的是单个扣减逻辑，即请求不会打到MergeQueue,所以只需要检测空轮询即可
 
-    //Q1:上游业务方等待超时,返回给用户秒杀失败, 下游可能是处于阻塞态, 之后可能扣减库存成功了, 那这里上游就需要做下补偿,把库存加回来 todo
 
-    //Q2: 扣减库存时是否需要对skuid分组呢, 如果需要那tps肯定急速下降, 如果采用不同sku进入不同队列的方式,那么如何消费这些队列呢 todo
+    //Q2: 扣减库存时是否需要对skuid分组呢, 如果需要那tps肯定急速下降, 如果采用不同sku进入不同队列的方式,那么如何消费这些队列呢
     //A2: 对每一个sku分配一个队列,为每个队列开异步线程, 只能针对爆品,顶多十来个
 
-    //Q3: 队列的创建(达到设定的并发阈值)与销毁(达到设定的空轮询阈值) todo
+    //Q3: 队列的创建(达到设定的并发阈值)与销毁(达到设定的空轮询阈值)
     //A3: 设计简单的计数器即可?(滑动窗口更好), 空轮询若干次后移除掉队列
 
-    //Q4:订单是如何生成的,生成时机 ?
-    //Q5:一个订单多个sku如何处理 todo
-    //Q6:某个时刻宕机, 队列还没消费完如何处理?
+    //Q4:订单是如何生成的,生成时机? todo
+    //Q5:一个订单多个sku如何处理? todo
+    //Q6:某个时刻宕机, 队列还没消费完如何处理? todo
 
-    private Map<Integer,AsyncThread> threadMap = new ConcurrentHashMap<>();
+    private static Map<Integer,AsyncThread> threadMap = new ConcurrentHashMap<>();
 
 
     public Result offer(Order request) throws InterruptedException {
 
         AsyncThread asyncThread = threadMap.computeIfAbsent(request.getProductId(),
-                (k)->new AsyncThread(request.getProductId()));
+                (k)->new AsyncThread(request.getProductId(),orderServiceImpl));
 
         RequestPromise requestPromise = new RequestPromise(request,Thread.currentThread());
 
@@ -57,6 +56,7 @@ public class MergeQueue {
 
         if (requestPromise.getResult() == null) {
             //可能需要回滚扣掉的库存 todo
+            //Q1:上游业务方等待超时,返回给用户秒杀失败, 下游可能是处于阻塞态, 之后可能扣减库存成功了, 那这里上游就需要做下补偿,把库存加回来 todo
             return new Result(false, "等待超时");
         }
         return requestPromise.getResult();
@@ -64,13 +64,16 @@ public class MergeQueue {
 
 
     @Slf4j
-    public class AsyncThread extends Thread{
+    public static class AsyncThread extends Thread{
         private int skuId;
         private BlockingQueue<MergeQueue.RequestPromise> queue;
         private int emptyCounter = 0;
         private boolean running = true;
-        public AsyncThread(int skuId) {
+        private OrderService orderServiceImpl;
+
+        public AsyncThread(int skuId, OrderService orderServiceImpl) {
             super("mergeThread,skuId="+skuId);
+            this.orderServiceImpl = orderServiceImpl;
             this.skuId = skuId;
             this.queue = new LinkedBlockingQueue<>(10000);
             start();
@@ -93,7 +96,8 @@ public class MergeQueue {
             while (running) {
                 if (queue.isEmpty()) {
                     emptyCounter++;
-                    if(emptyCounter>threshold){
+                    //这里撤销可能有点问题, 是否需要出现连续几次空轮询后才撤销? 撤销的阈值该如何确定? todo
+                    if(emptyCounter>=threshold){
                         threadMap.remove(skuId);
                         running = false;
                         log.info("stop thread,threadName="+getName());
@@ -106,6 +110,7 @@ public class MergeQueue {
                     }
                 }
 
+                emptyCounter = 0;// 重置0,连续空轮询才撤销
 
                 long start = System.currentTimeMillis();
 
@@ -129,7 +134,7 @@ public class MergeQueue {
                 list.clear();
 
                 long costTime = System.currentTimeMillis()-start;
-                if(costTime>10){
+                if(costTime>5){
                     log.info("扣减库存花费时间="+costTime);
                 }
             }
