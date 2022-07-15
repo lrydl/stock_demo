@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.smallrig.mall.template.entity.Order;
 import com.smallrig.mall.template.mapper.OrderMapper;
 import com.smallrig.mall.template.mapper.ProductMapper;
+import com.smallrig.mall.template.request.OrderReq;
 import com.smallrig.mall.template.service.OrderService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;

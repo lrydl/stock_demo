@@ -7,25 +7,18 @@
 
     <insert id="save" parameterType="com.smallrig.mall.template.entity.Order">
         INSERT INTO sorder
-        (id,`name`,`product_id`,`user_id`,`buy_num`)
-        VALUES(#{id},#{name},#{productId},#{userId},#{buyNum});
+        (id,`order_sn`,`product_id`,`user_id`,`buy_num`)
+        VALUES(#{id},#{orderSn},#{productId},#{userId},#{buyNum});
     </insert>
 
     <insert id="saveBatch" parameterType="com.smallrig.mall.template.entity.Order" useGeneratedKeys="true" keyProperty="id" keyColumn="id">
-        insert into sorder (`name`,`product_id`,`user_id`,`buy_num`)
+        insert into sorder (`order_sn`,`product_id`,`user_id`,`buy_num`)
         values
         <foreach collection="list" item="order" separator=",">
-            (#{order.name,jdbcType=VARCHAR},#{order.productId,jdbcType=INTEGER},#{order.userId,jdbcType=INTEGER},#{order.buyNum,jdbcType=INTEGER})
+            (#{order.orderSn,jdbcType=BIGINT},#{order.productId,jdbcType=INTEGER},#{order.userId,jdbcType=INTEGER},#{order.buyNum,jdbcType=INTEGER})
         </foreach>
 
     </insert>
 
-    <update id="updateById" parameterType="com.smallrig.mall.template.entity.Order">
-        update  sorder set name = #{name} where id  = #{id}
-    </update>
 
-
-    <select id="selectById" resultType="com.smallrig.mall.template.entity.Order" useCache="false">
-        select * from sorder where  id != #{param1}
-    </select>
 </mapper>

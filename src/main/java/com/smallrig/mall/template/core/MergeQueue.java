@@ -3,16 +3,14 @@ package com.smallrig.mall.template.core;
 import com.smallrig.mall.template.entity.Order;
 import com.smallrig.mall.template.mapper.OrderMapper;
 import com.smallrig.mall.template.mapper.ProductMapper;
+import com.smallrig.mall.template.request.OrderReq;
 import com.smallrig.mall.template.service.OrderService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
 import javax.annotation.PostConstruct;
 import javax.annotation.Resource;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
+import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.locks.LockSupport;
 import java.util.stream.Collectors;
@@ -36,32 +34,47 @@ public class MergeQueue {
     //Q4: 订单是如何生成的,生成时机?
     //A4: 上游生成订单,然后扣减库存,扣失败了回滚订单
 
-    //Q5:一个订单多个sku如何处理? todo
+    //Q5:一个订单多个sku如何处理? 根据skuId拆单, 使用CountDownLatch(sku数量)阻塞上游调用方
     //Q6:某个时刻宕机, 队列还没消费完如何处理? todo
 
     private static Map<Integer,AsyncThread> threadMap = new ConcurrentHashMap<>();
 
 
-    public Result offer(Order request) throws InterruptedException {
+    public Result offer(OrderReq request) throws InterruptedException {
 
-        AsyncThread asyncThread = threadMap.computeIfAbsent(request.getProductId(),
-                (k)->new AsyncThread(request.getProductId(),orderServiceImpl));
+        CountDownLatch cdl = new CountDownLatch(request.getSkuReqs().size());
+        List<RequestPromise> requestPromises = new ArrayList<>();
 
-        RequestPromise requestPromise = new RequestPromise(request,Thread.currentThread());
+        for (OrderReq.SkuReq skuReq : request.getSkuReqs()) {
 
-        boolean enqueueSuccess = asyncThread.offer(requestPromise, 100, TimeUnit.MILLISECONDS);
-        //这里可能会出现一种情况：当出现三次空轮训后，撤销线程，突然来了一波高峰，可能会直接返回false，不知道可不可行，这种处理方式？ todo
-        if (!enqueueSuccess) {
-            return new Result(false, "系统繁忙");
+            AsyncThread asyncThread = threadMap.computeIfAbsent(skuReq.getSkuId(),
+                    (k)->new AsyncThread(skuReq.getSkuId(),orderServiceImpl));
+
+            //根据sku拆单
+            Order order = Order.builder().buyNum(skuReq.getBuyNum()).userId(request.getUserId()).productId(skuReq.getSkuId()).orderSn(request.getOrderSn()).build();
+            RequestPromise requestPromise = new RequestPromise(order,cdl);
+
+            boolean enqueueSuccess = asyncThread.offer(requestPromise, 100, TimeUnit.MILLISECONDS);
+            //这里可能会出现一种情况：当出现三次空轮训后，撤销线程，突然来了一波高峰，可能会直接返回false，不知道可不可行，这种处理方式？ todo
+            if (!enqueueSuccess) {
+                return new Result(false, "系统繁忙");
+            }
         }
-        requestPromise.await(300);
 
-        if (requestPromise.getResult() == null) {
-            //可能需要回滚扣掉的库存 todo
-            //Q1:上游业务方等待超时,返回给用户秒杀失败, 下游可能是处于阻塞态, 之后可能扣减库存成功了, 那这里上游就需要做下补偿,把库存加回来 todo
-            return new Result(false, "等待超时");
+        cdl.await(300,TimeUnit.MILLISECONDS);
+
+        for (RequestPromise requestPromise : requestPromises) {
+            if (requestPromise.getResult() == null) {
+                //可能需要回滚扣掉的库存 todo
+                //Q1:上游业务方等待超时,返回给用户秒杀失败, 下游可能是处于阻塞态, 之后可能扣减库存成功了, 那这里上游就需要做下补偿,把库存加回来 todo
+                return new Result(false, "等待超时");
+            }
+            if(!requestPromise.getResult().isSuccess()){
+                return requestPromise.getResult();
+            }
         }
-        return requestPromise.getResult();
+
+        return Result.ok();
     }
 
 
@@ -147,20 +160,18 @@ public class MergeQueue {
     public static class RequestPromise {
         private Order request;
         private Result result;
-        private Thread thread;
-
-        public RequestPromise(Order request,Thread thread) {
+        private CountDownLatch cdl;
+        public RequestPromise(Order request,CountDownLatch cdl) {
             this.request = request;
-            this.thread = thread;
+            this.cdl = cdl;
         }
 
-
-        public void await(long mills){
+        public void await(long mills) throws InterruptedException {
             LockSupport.parkNanos(mills*1000000);
         }
 
         public void signal(){
-            LockSupport.unpark(thread);
+            cdl.countDown();
         }
 
         public Order getRequest() {
@@ -192,7 +203,9 @@ public class MergeQueue {
         private Boolean success;
         private String msg;
 
-
+        public static Result ok(){
+            return new Result(true,"ok");
+        }
         public Result(boolean success, String msg) {
             this.success = success;
             this.msg = msg;
