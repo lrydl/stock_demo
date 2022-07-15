@@ -68,6 +68,7 @@ public class MergeQueue {
         for (RequestPromise requestPromise : requestPromises) {
             if (requestPromise.getResult() == null) {
                 //可能需要回滚扣掉的库存 todo
+                //库存流水表 todo
                 //Q1:上游业务方等待超时,返回给用户秒杀失败, 下游可能是处于阻塞态, 之后可能扣减库存成功了, 那这里上游就需要做下补偿,把库存加回来 todo
                 return new Result(false, "等待超时");
             }
