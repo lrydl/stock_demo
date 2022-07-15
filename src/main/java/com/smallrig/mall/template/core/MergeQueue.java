@@ -34,7 +34,9 @@ public class MergeQueue {
     //Q4: 订单是如何生成的,生成时机?
     //A4: 上游生成订单,然后扣减库存,扣失败了回滚订单
 
-    //Q5:一个订单多个sku如何处理? 根据skuId拆单, 使用CountDownLatch(sku数量)阻塞上游调用方
+    //Q5: 一个订单多个sku如何处理?
+    //A5: 根据skuId拆单, 使用CountDownLatch(sku数量)阻塞上游调用方
+
     //Q6:某个时刻宕机, 队列还没消费完如何处理? todo
 
     private static Map<Integer,AsyncThread> threadMap = new ConcurrentHashMap<>();
