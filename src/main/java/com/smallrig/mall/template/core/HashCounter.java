@@ -11,7 +11,9 @@ import java.util.concurrent.atomic.LongAdder;
 @Slf4j
 public class HashCounter implements Counter{
 
-
+    //1  2
+    //1  3
+    //4
     private Map<Integer, CounterHelper> counterMap = new ConcurrentHashMap<>();
     protected int intervalInMs;//1000ms
 
@@ -28,6 +30,7 @@ public class HashCounter implements Counter{
         LongAdder counter = counterHelper.getCounter();
 
         if(curTime-lastTime>intervalInMs){
+            counterHelper.setLastTime(curTime);
             counter.reset();
         }
         counter.add(count);
@@ -44,14 +47,14 @@ public class HashCounter implements Counter{
 
     public static void main(String[] args) throws InterruptedException {
         HashCounter hashCounter = new HashCounter(1000);
-//        hashCounter.normalTest();
-        hashCounter.bugTest();
+        hashCounter.normalTest();
+//        hashCounter.bugTest();
     }
 
     private void normalTest() throws InterruptedException {
         for(int i=0;i<100000;i++){
             addCounter(1,1);
-            Thread.sleep(9);
+            Thread.sleep(8);
         }
     }
 

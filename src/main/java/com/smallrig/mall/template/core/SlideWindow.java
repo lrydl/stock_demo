@@ -44,12 +44,13 @@ public class SlideWindow implements Counter{
     }
 
     public Bucket getBucket(){
-        long curTime = System.currentTimeMillis();
-        int idx = (int) ((curTime/windowLengthInMs)%sampleCount);
-        long windowStart = (curTime - curTime%windowLengthInMs);
-        Bucket old = array.get(idx);
-
         while(true){
+
+            long curTime = System.currentTimeMillis();
+            int idx = (int) ((curTime/windowLengthInMs)%sampleCount);
+            long windowStart = (curTime - curTime%windowLengthInMs);
+            Bucket old = array.get(idx);
+
             if(null==old){
                 Bucket bucket = new Bucket(windowLengthInMs,windowStart,new LongAdder());
                 if(array.compareAndSet(idx,null,bucket)){
@@ -65,6 +66,7 @@ public class SlideWindow implements Counter{
                         updateLock.lock();
                         //重置旧bucket
                         old.reset(windowStart);
+                        return old;
                     }finally {
                         updateLock.unlock();
                     }
