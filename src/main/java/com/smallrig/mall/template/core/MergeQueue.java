@@ -1,11 +1,13 @@
 package com.smallrig.mall.template.core;
 
 import com.smallrig.mall.template.entity.Order;
+import com.smallrig.mall.template.entity.StockLog;
 import com.smallrig.mall.template.mapper.OrderMapper;
 import com.smallrig.mall.template.mapper.ProductMapper;
 import com.smallrig.mall.template.request.OrderReq;
 import com.smallrig.mall.template.service.OrderService;
 import com.smallrig.mall.template.service.ProductService;
+import com.smallrig.mall.template.service.StockLogService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
@@ -20,8 +22,8 @@ import java.util.stream.Collectors;
 @Slf4j
 public class MergeQueue {
 
-   @Resource
-   private OrderService orderServiceImpl;
+    @Resource
+    private StockLogService stockLogServiceImpl;
 
    @Resource
    private ProductService productServiceImpl;
@@ -54,11 +56,11 @@ public class MergeQueue {
         for (OrderReq.SkuReq skuReq : request.getSkuReqs()) {
 
             AsyncThread asyncThread = threadMap.computeIfAbsent(skuReq.getSkuId(),
-                    (k)->new AsyncThread(skuReq.getSkuId(),orderServiceImpl,productServiceImpl));
+                    (k)->new AsyncThread(skuReq.getSkuId(),stockLogServiceImpl,productServiceImpl));
 
             //根据sku拆单
-            Order order = Order.builder().buyNum(skuReq.getBuyNum()).userId(request.getUserId()).productId(skuReq.getSkuId()).orderSn(request.getOrderSn()).build();
-            RequestPromise requestPromise = new RequestPromise(order,cdl);
+            StockLog stockLog = StockLog.builder().buyNum(skuReq.getBuyNum()).userId(request.getUserId()).skuId(skuReq.getSkuId()).businessId(request.getBusinessId()).build();
+            RequestPromise requestPromise = new RequestPromise(stockLog,cdl);
             requestPromises.add(requestPromise);
             boolean enqueueSuccess = asyncThread.offer(requestPromise, 100, TimeUnit.MILLISECONDS);
             //这里可能会出现一种情况：当出现三次空轮训后，撤销线程，突然来了一波高峰，可能会直接返回false，不知道可不可行，这种处理方式？ todo
@@ -69,19 +71,45 @@ public class MergeQueue {
 
         cdl.await(300,TimeUnit.MILLISECONDS);
 
+        boolean ok = true;
         for (RequestPromise requestPromise : requestPromises) {
             if (requestPromise.getResult() == null) {
-                //可能需要回滚扣掉的库存 todo
-                //库存流水表 todo
-                //Q1:上游业务方等待超时,返回给用户秒杀失败, 下游可能是处于阻塞态, 之后可能扣减库存成功了, 那这里上游就需要做下补偿,把库存加回来 todo
-                return new Result(false, "等待超时");
+                ok = false;
+                break;
             }
             if(!requestPromise.getResult().isSuccess()){
-                return requestPromise.getResult();
+                ok = false;
+                break;
             }
         }
 
-        return Result.ok();
+        List<StockLog> stockLogs = new ArrayList<>();//存储需要回查流水表的数据
+        for (RequestPromise requestPromise : requestPromises) {
+            //如果是null，说明等待超时，需要回查
+            if (requestPromise.getResult() == null) {
+                stockLogs.add(requestPromise.getRequest());
+            }
+            if(!ok && requestPromise.getResult().isSuccess()){
+                stockLogs.add(requestPromise.getRequest());
+            }
+        }
+        //如何处理需要回查的流水数据，开线程？mq？
+
+        if(ok){
+            return Result.ok();
+        }else{
+            return Result.fail();
+        }
+
+        //发送RocketMq消息，利用MQ的阶梯形回查处理库存回滚
+
+        //Q1:上游业务方等待超时,返回给用户秒杀失败, 下游可能是处于阻塞态, 之后可能扣减库存成功了, 那这里上游就需要做下补偿,把库存加回来 todo
+        //参数：userId，businessI的，skuId可以定位到一条流水记录
+
+        //这样就可以保证上下游库存的最终一致性
+
+        //使用MQ，这里不可以耗时，只能使用异步发送，可靠性如何保证？
+        //不使用MQ，再开一个异步线程处理，宕机了怎么办，而且机器压力已经很大了，在开一个线程会使tps变低
     }
 
 
@@ -91,12 +119,12 @@ public class MergeQueue {
         private BlockingQueue<MergeQueue.RequestPromise> queue;
         private int emptyCounter = 0;
         private boolean running = true;
-        private OrderService orderServiceImpl;
+        private StockLogService stockLogServiceImpl;
         private ProductService productServiceImpl;
 
-        public AsyncThread(int skuId, OrderService orderServiceImpl,ProductService productServiceImpl) {
+        public AsyncThread(int skuId,StockLogService stockLogServiceImpl,ProductService productServiceImpl) {
             super("mergeThread,skuId="+skuId);
-            this.orderServiceImpl = orderServiceImpl;
+            this.stockLogServiceImpl = stockLogServiceImpl;
             this.productServiceImpl = productServiceImpl;
             this.skuId = skuId;
             this.queue = new LinkedBlockingQueue<>(10000);
@@ -140,17 +168,20 @@ public class MergeQueue {
 
                 List<MergeQueue.RequestPromise> list = new ArrayList<>();
                 int batchSize = queue.size();
-                int buySum = 0;
                 for (int i = 0; i < batchSize; i++) {
                     MergeQueue.RequestPromise requestPromise = queue.poll();
-                    buySum += requestPromise.getRequest().getBuyNum();
                     list.add(requestPromise);
                 }
 
                 log.info(Thread.currentThread().getName() + ":合并扣减库存:" + list);
 
-                List<Order> orders = list.stream().map(v -> v.getRequest()).collect(Collectors.toList());
-                boolean decrStockOk = orderServiceImpl.saveOrder(orders);
+                List<StockLog> stockLogs = list.stream().map(v -> v.getRequest()).collect(Collectors.toList());
+                boolean decrStockOk = false;
+                try {
+                    decrStockOk = stockLogServiceImpl.saveStockLog(stockLogs);
+                }catch (Exception e){
+
+                }
 
                 //批量扣减成功了,直接批量返回
                 if(decrStockOk){
@@ -176,7 +207,7 @@ public class MergeQueue {
 
         //走到降级tps下降的会比较狠,因为多了一个查库存, 扣减库存也变成单批扣减了
         private void degrade(List<MergeQueue.RequestPromise> list){
-            int skuId = list.get(0).getRequest().getProductId();
+            int skuId = list.get(0).getRequest().getSkuId();
             int stock = productServiceImpl.queryStock(skuId);
             //查询库存数量
             if(stock<=0){
@@ -191,7 +222,12 @@ public class MergeQueue {
                 //库存不足退化成循环
                 for (MergeQueue.RequestPromise requestPromise : list) {
                     if(stock>=requestPromise.getRequest().getBuyNum()){
-                        boolean f = orderServiceImpl.saveOrder(Arrays.asList(requestPromise.getRequest()));
+                        boolean f = false;
+                        try{
+                            f = stockLogServiceImpl.saveStockLog(Arrays.asList(requestPromise.getRequest()));
+                        }catch (Exception e){
+
+                        }
                         if(f){
                             //通知用户成功
                             requestPromise.setResult(new MergeQueue.Result(true, "ok"));
@@ -214,10 +250,10 @@ public class MergeQueue {
 
 
     public static class RequestPromise {
-        private Order request;
+        private StockLog request;
         private Result result;
         private CountDownLatch cdl;
-        public RequestPromise(Order request,CountDownLatch cdl) {
+        public RequestPromise(StockLog request,CountDownLatch cdl) {
             this.request = request;
             this.cdl = cdl;
         }
@@ -230,11 +266,11 @@ public class MergeQueue {
             cdl.countDown();
         }
 
-        public Order getRequest() {
+        public StockLog getRequest() {
             return request;
         }
 
-        public void setRequest(Order request) {
+        public void setRequest(StockLog request) {
             this.request = request;
         }
 
@@ -261,6 +297,9 @@ public class MergeQueue {
 
         public static Result ok(){
             return new Result(true,"ok");
+        }
+        public static Result fail(){
+            return new Result(false,"fail");
         }
         public Result(boolean success, String msg) {
             this.success = success;

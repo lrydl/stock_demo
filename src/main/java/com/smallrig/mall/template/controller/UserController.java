@@ -5,8 +5,10 @@ import com.smallrig.mall.template.core.Counter;
 import com.smallrig.mall.template.core.MergeQueue;
 import com.smallrig.mall.template.core.SlideWindow;
 import com.smallrig.mall.template.entity.Order;
+import com.smallrig.mall.template.entity.StockLog;
 import com.smallrig.mall.template.request.OrderReq;
 import com.smallrig.mall.template.service.OrderService;
+import com.smallrig.mall.template.service.StockLogService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.web.bind.annotation.*;
 
@@ -31,7 +33,7 @@ public class UserController{
     private MergeQueue mergeQueue;
 
     @Resource
-    private OrderService orderServiceImpl;
+    private StockLogService stockLogServiceImpl;
 
     volatile int maxProductId = 5; //爆品sku只能几个,3-5个的时候tps能到4000多,10个只能到2000,cpu都吃完了
 
@@ -59,12 +61,12 @@ public class UserController{
             int buyNum = random.nextInt(5)+1;//1-5
             skuReqs.add(new OrderReq.SkuReq(skuId,buyNum));
         }
-        OrderReq orderReq = OrderReq.builder().userId(userId).skuReqs(skuReqs).orderSn(IdWorker.getId()).build();
+        OrderReq orderReq = OrderReq.builder().userId(userId).skuReqs(skuReqs).businessId(IdWorker.getId()).build();
 
         //只要有一个sku打到tps阈值,就进行合并队列操作
         boolean generateQueue = false;
         for (OrderReq.SkuReq skuReq : orderReq.getSkuReqs()) {
-            boolean f = slideWindow.addCounter(skuReq.getSkuId(), skuReq.getBuyNum());
+            boolean f = slideWindow.addCounter(skuReq.getSkuId(), 1);
             if(f){
                 generateQueue = true;
             }
@@ -78,11 +80,16 @@ public class UserController{
             }
         }else{
             //否则单个处理
-            List<Order> orders = new ArrayList<>();
+            List<StockLog> stockLogs = new ArrayList<>();
             for (OrderReq.SkuReq skuReq : skuReqs) {
-                orders.add(Order.builder().orderSn(orderReq.getOrderSn()).userId(orderReq.getUserId()).buyNum(skuReq.getBuyNum()).productId(skuReq.getSkuId()).build());
+                stockLogs.add(StockLog.builder().businessId(orderReq.getBusinessId()).
+                        userId(orderReq.getUserId()).buyNum(skuReq.getBuyNum()).skuId(skuReq.getSkuId()).build());
             }
-            orderServiceImpl.saveOrder(orders);
+            try{
+                stockLogServiceImpl.saveStockLog(stockLogs);
+            }catch (Exception e){
+
+            }
         }
     }
 

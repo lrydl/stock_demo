@@ -44,13 +44,13 @@ public class SlideWindow implements Counter{
     }
 
     public Bucket getBucket(){
+        //bug1修复： 应该把idx，winStart计算放在循环外面
+        long curTime = System.currentTimeMillis();
+        int idx = (int) ((curTime/windowLengthInMs)%sampleCount);
+        long windowStart = (curTime - curTime%windowLengthInMs);
+
         while(true){
-
-            long curTime = System.currentTimeMillis();
-            int idx = (int) ((curTime/windowLengthInMs)%sampleCount);
-            long windowStart = (curTime - curTime%windowLengthInMs);
             Bucket old = array.get(idx);
-
             if(null==old){
                 Bucket bucket = new Bucket(windowLengthInMs,windowStart,new LongAdder());
                 if(array.compareAndSet(idx,null,bucket)){
@@ -62,13 +62,15 @@ public class SlideWindow implements Counter{
                 if(old.getWindowStart()==windowStart){
                     return old;
                 }else if(old.getWindowStart()<windowStart){
-                    try{
-                        updateLock.lock();
-                        //重置旧bucket
-                        old.reset(windowStart);
-                        return old;
-                    }finally {
-                        updateLock.unlock();
+                    //bug2修复：只有一个更新线程能进来
+                    if(updateLock.tryLock()){
+                        try{
+                            //重置旧bucket
+                            old.reset(windowStart);
+                            return old;
+                        }finally {
+                            updateLock.unlock();
+                        }
                     }
                 }else{
                     //can not reach
@@ -76,7 +78,6 @@ public class SlideWindow implements Counter{
                 }
             }
         }
-
     }
 
 

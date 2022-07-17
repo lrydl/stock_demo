@@ -13,9 +13,7 @@ import java.util.List;
 @Builder
 public class OrderReq {
 
-    private int id;
-
-    private long orderSn;
+    private long businessId;//库存扣减流水号
 
     private int userId;
 
