@@ -88,9 +88,11 @@ public class MergeQueue {
             //如果是null，说明等待超时，需要回查
             if (requestPromise.getResult() == null) {
                 stockLogs.add(requestPromise.getRequest());
+                continue;
             }
             if(!ok && requestPromise.getResult().isSuccess()){
                 stockLogs.add(requestPromise.getRequest());
+                continue;
             }
         }
         //如何处理需要回查的流水数据，开线程？mq？

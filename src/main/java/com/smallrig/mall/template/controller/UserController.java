@@ -14,10 +14,7 @@ import org.springframework.web.bind.annotation.*;
 
 import javax.annotation.PostConstruct;
 import javax.annotation.Resource;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.List;
-import java.util.Random;
+import java.util.*;
 
 
 @RestController
@@ -56,10 +53,14 @@ public class UserController{
         int userId = random.nextInt(4)+1;//1-4
         List<OrderReq.SkuReq> skuReqs = new ArrayList<>();
         int skuNum = random.nextInt(5)+1;
+        Set<Integer> skuIds = new HashSet<>();
         for(int i=0;i<skuNum;i++){
             int skuId = random.nextInt(maxProductId)+1;//1-2
-            int buyNum = random.nextInt(5)+1;//1-5
-            skuReqs.add(new OrderReq.SkuReq(skuId,buyNum));
+            if(!skuIds.contains(skuId)){
+                int buyNum = random.nextInt(5)+1;//1-5
+                skuReqs.add(new OrderReq.SkuReq(skuId,buyNum));
+            }
+            skuIds.add(skuId);
         }
         OrderReq orderReq = OrderReq.builder().userId(userId).skuReqs(skuReqs).businessId(IdWorker.getId()).build();
 
