@@ -6,14 +6,17 @@ import com.smallrig.mall.template.core.MergeQueue;
 import com.smallrig.mall.template.core.SlideWindow;
 import com.smallrig.mall.template.entity.Order;
 import com.smallrig.mall.template.entity.StockLog;
+import com.smallrig.mall.template.mapper.OrderMapper;
 import com.smallrig.mall.template.request.OrderReq;
 import com.smallrig.mall.template.service.OrderService;
 import com.smallrig.mall.template.service.StockLogService;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 
 import javax.annotation.PostConstruct;
 import javax.annotation.Resource;
+import java.rmi.activation.ActivationException;
 import java.util.*;
 
 
@@ -46,6 +49,30 @@ public class UserController{
             maxProductId = 3;
         }).start();
     }
+
+    @Resource
+    private OrderMapper orderMapper;
+
+
+    @GetMapping("/testTran")
+    @Transactional
+    //默认RuntimeException和Error
+    public void testTran()   {
+        Order order = new Order();
+        order.setId(1);
+        order.setOrderSn(2L);
+        order.setProductId(1);
+        order.setUserId(1);
+        order.setBuyNum(1);
+        orderMapper.save(order);
+
+        try {
+            throw new ActivationException("ds");
+        } catch (ActivationException e) {
+            e.printStackTrace();
+        }
+    }
+
 
     @GetMapping("/submitOrder")
     public void submitOrder() throws InterruptedException {

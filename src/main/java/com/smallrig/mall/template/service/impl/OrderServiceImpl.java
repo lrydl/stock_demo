@@ -7,6 +7,7 @@ import com.smallrig.mall.template.mapper.ProductMapper;
 import com.smallrig.mall.template.request.OrderReq;
 import com.smallrig.mall.template.service.OrderService;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.plugin.core.support.BeanListFactoryBean;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -22,8 +23,6 @@ public class OrderServiceImpl  extends ServiceImpl<OrderMapper, Order> implement
 
     @Resource
     private ProductMapper productMapper;
-
-
 
     @Override
     @Transactional
