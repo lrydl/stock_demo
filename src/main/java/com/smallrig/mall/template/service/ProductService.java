@@ -8,4 +8,6 @@ import com.smallrig.mall.template.mapper.OrderMapper;
 
 public interface ProductService  extends IService<Product> {
     int queryStock(int skuId);
+
+    void saveProduct();
 }

@@ -10,6 +10,8 @@ import java.util.List;
 
 public interface OrderService extends IService<Order> {
 
+    void saveOrder();
+
     @Transactional
     boolean saveOrder(List<Order> orders);
 }

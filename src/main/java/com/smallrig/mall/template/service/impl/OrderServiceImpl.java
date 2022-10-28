@@ -25,6 +25,16 @@ public class OrderServiceImpl  extends ServiceImpl<OrderMapper, Order> implement
     private ProductMapper productMapper;
 
     @Override
+    public void saveOrder(){
+        Order order = new Order();
+        order.setOrderSn(2L);
+        order.setProductId(1);
+        order.setUserId(1);
+        order.setBuyNum(1);
+        orderMapper.save(order);
+    }
+
+    @Override
     @Transactional
     public boolean saveOrder(List<Order> orders){
         int sum = orders.stream().mapToInt(e -> e.getBuyNum()).sum();

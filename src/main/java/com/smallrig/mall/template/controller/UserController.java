@@ -11,6 +11,7 @@ import com.smallrig.mall.template.request.OrderReq;
 import com.smallrig.mall.template.service.OrderService;
 import com.smallrig.mall.template.service.StockLogService;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 
@@ -50,28 +51,6 @@ public class UserController{
         }).start();
     }
 
-    @Resource
-    private OrderMapper orderMapper;
-
-
-    @GetMapping("/testTran")
-    @Transactional
-    //默认RuntimeException和Error
-    public void testTran()   {
-        Order order = new Order();
-        order.setId(1);
-        order.setOrderSn(2L);
-        order.setProductId(1);
-        order.setUserId(1);
-        order.setBuyNum(1);
-        orderMapper.save(order);
-
-        try {
-            throw new ActivationException("ds");
-        } catch (ActivationException e) {
-            e.printStackTrace();
-        }
-    }
 
 
     @GetMapping("/submitOrder")
